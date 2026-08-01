@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optique — transfert sans réseau</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1210">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Optique">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+  :root{
+    --ink:#0d1210;
+    --panel:#121917;
+    --line:#24322d;
+    --phosphor:#5CF29A;
+    --phosphor-dim:#2f7a56;
+    --amber:#F2B15C;
+    --red:#F26B5C;
+    --paper:#e9efe9;
+    --mono: 'JetBrains Mono','SF Mono',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--ink);color:var(--paper);font-family:var(--mono);}
+  body{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 16px 60px;}
+
+  .scan-overlay{
+    position:fixed;inset:0;pointer-events:none;z-index:50;
+    background:repeating-linear-gradient(0deg, rgba(92,242,154,0.035) 0px, rgba(92,242,154,0.035) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:screen;
+  }
+
+  header{width:100%;max-width:720px;margin-bottom:28px;}
+  .eyebrow{color:var(--amber);font-size:12px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:6px;}
+  h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em;color:var(--phosphor);}
+  .sub{font-size:12.5px;color:#8ea89a;line-height:1.5;max-width:56ch;}
+
+  .card{
+    width:100%;max-width:720px;background:var(--panel);border:1px solid var(--line);
+    border-radius:2px;padding:22px;margin-bottom:16px;position:relative;
+  }
+  .card::before{
+    content:attr(data-tag);position:absolute;top:-9px;left:14px;background:var(--ink);
+    padding:0 8px;font-size:10px;letter-spacing:.12em;color:var(--phosphor-dim);text-transform:uppercase;
+  }
+
+  .mode-row{display:flex;gap:0;width:100%;max-width:720px;margin-bottom:20px;border:1px solid var(--line);}
+  .mode-btn{
+    flex:1;padding:12px;background:transparent;color:#8ea89a;border:none;cursor:pointer;
+    font-family:var(--mono);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;
+    border-right:1px solid var(--line);transition:.15s;
+  }
+  .mode-btn:last-child{border-right:none;}
+  .mode-btn.active{background:var(--phosphor-dim);color:#04140a;font-weight:700;}
+
+  input[type=file]{
+    width:100%;padding:10px;background:var(--ink);border:1px dashed var(--line);color:var(--paper);
+    font-family:var(--mono);font-size:12px;margin-bottom:14px;
+  }
+  button.action{
+    background:var(--phosphor);color:#04140a;border:none;padding:11px 20px;font-family:var(--mono);
+    font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;
+  }
+  button.action:disabled{background:var(--line);color:#5c6a63;cursor:not-allowed;}
+  button.ghost{
+    background:transparent;border:1px solid var(--line);color:#8ea89a;padding:9px 16px;font-family:var(--mono);
+    font-size:12px;cursor:pointer;
+  }
+
+  #qrStage{display:flex;flex-direction:column;align-items:center;padding:20px 0 6px;}
+  #qrHolder{background:#fff;padding:10px;border-radius:2px;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+  #qrHolder .qrCell{background:#fff;}
+  .telemetry{font-size:11px;color:var(--phosphor);margin-top:14px;letter-spacing:.04em;}
+  .telemetry b{color:var(--amber);}
+  .speedctl{display:flex;align-items:center;gap:10px;margin-top:16px;font-size:11px;color:#8ea89a;}
+  input[type=range]{accent-color:var(--phosphor);width:160px;}
+
+  #video{width:100%;max-height:340px;background:#000;object-fit:cover;border:1px solid var(--line);}
+  .progress-wrap{width:100%;height:8px;background:var(--ink);border:1px solid var(--line);margin-top:14px;overflow:hidden;}
+  .progress-bar{height:100%;background:linear-gradient(90deg,var(--phosphor-dim),var(--phosphor));width:0%;transition:width .2s;}
+
+  .meter-row{display:flex;gap:14px;margin-top:12px;flex-wrap:wrap;}
+  .meter{font-size:11px;color:#8ea89a;}
+  .meter b{color:var(--phosphor);font-size:13px;}
+  .suggest{font-size:11.5px;margin-top:10px;padding:8px 10px;border-left:2px solid var(--amber);color:var(--amber);background:rgba(242,177,92,0.06);display:none;}
+  .suggest.show{display:block;}
+  .suggest.ok{border-left-color:var(--phosphor);color:var(--phosphor);background:rgba(92,242,154,0.06);}
+
+  .log{font-size:11px;color:#5c6a63;margin-top:12px;min-height:16px;}
+  .hidden{display:none !important;}
+  a.dl{color:var(--phosphor);text-decoration:underline;}
+
+  footer{max-width:720px;font-size:11px;color:#4a5951;line-height:1.6;margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="scan-overlay"></div>
+
+<header>
+  <div class="eyebrow">Proto v0.2 — canal optique + fountain codes</div>
+  <h1>Optique</h1>
+  <div class="sub">Transfert de fichier entre deux appareils sans wifi ni Bluetooth. Codage fontaine (LT codes) sur mosaïque de 4 QR : le récepteur reconstitue le fichier dès qu'il a reçu "assez" de symboles, peu importe lesquels.</div>
+</header>
+
+<div class="mode-row">
+  <button class="mode-btn active" id="btnSend">Émetteur</button>
+  <button class="mode-btn" id="btnRecv">Récepteur</button>
+</div>
+
+<!-- SENDER -->
+<div class="card" data-tag="Émission" id="sendCard">
+  <input type="file" id="fileInput">
+  <button class="action" id="startSend">Diffuser</button>
+  <button class="ghost" id="stopSend" style="margin-left:8px;display:none;">Arrêter</button>
+
+  <div id="qrStage" class="hidden">
+    <div id="qrHolder">
+      <div class="qrCell" id="qrCell0"></div>
+      <div class="qrCell" id="qrCell1"></div>
+      <div class="qrCell" id="qrCell2"></div>
+      <div class="qrCell" id="qrCell3"></div>
+    </div>
+    <div class="telemetry">Blocs source <b id="kTotal">0</b> — symboles envoyés <b id="symSent">0</b></div>
+    <div class="speedctl">
+      Vitesse
+      <input type="range" id="speedRange" min="100" max="600" value="220">
+      <span id="speedLabel">220 ms/tick</span>
+    </div>
+  </div>
+  <div class="log" id="sendLog"></div>
+</div>
+
+<!-- RECEIVER -->
+<div class="card hidden" data-tag="Réception" id="recvCard">
+  <button class="action" id="startRecv">Activer la caméra</button>
+  <button class="ghost" id="stopRecv" style="margin-left:8px;display:none;">Arrêter</button>
+  <video id="video" class="hidden" playsinline muted></video>
+  <canvas id="canvas" class="hidden"></canvas>
+  <div class="progress-wrap"><div class="progress-bar" id="progBar"></div></div>
+  <div class="telemetry"><b id="gotCount">0</b> / <b id="totalCount">?</b> blocs reconstruits — <span id="fileName">en attente…</span></div>
+  <div class="meter-row">
+    <div class="meter">Débit <b id="throughputVal">--</b></div>
+    <div class="meter">Fiabilité scan <b id="reliabilityVal">--</b></div>
+  </div>
+  <div class="suggest" id="suggestBox"></div>
+  <div class="log" id="recvLog"></div>
+  <div id="downloadZone"></div>
+</div>
+
+<footer>
+  Codage fontaine (LT / Luby Transform) : chaque QR transporte une combinaison XOR aléatoire de plusieurs blocs source, régénérable côté récepteur à partir d'une seule graine (seed) de quelques octets. Plus de blocage possible sur "il manque juste le dernier paquet" — le débit utile reste quasi constant même avec une caméra imparfaite. Tout tourne dans le navigateur, sans backend.
+</footer>
+
+<script>
+// ================= FOUNTAIN CODE CORE (LT / Ideal Soliton) =================
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildSolitonCDF(K){
+  const rho = new Float64Array(K+1);
+  rho[1] = 1/K;
+  for(let i=2;i<=K;i++) rho[i] = 1/(i*(i-1));
+  let sum = 0; for(let i=1;i<=K;i++) sum += rho[i];
+  const cdf = new Float64Array(K+1);
+  let acc = 0;
+  for(let i=1;i<=K;i++){ acc += rho[i]/sum; cdf[i] = acc; }
+  return cdf;
+}
+
+function pickDegree(rng, cdf, K){
+  const r = rng();
+  let lo=1, hi=K;
+  while(lo<hi){
+    const mid=(lo+hi)>>1;
+    if(cdf[mid] < r) lo = mid+1; else hi = mid;
+  }
+  return lo;
+}
+
+function pickIndices(rng, K, d){
+  const set = new Set();
+  let guard = 0;
+  while(set.size < d && guard < d*50+50){
+    set.add(Math.floor(rng()*K));
+    guard++;
+  }
+  return Array.from(set);
+}
+
+function bytesToBase64(bytes){
+  let binary='';
+  const chunk = 8192;
+  for(let i=0;i<bytes.length;i+=chunk){
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
+  }
+  return btoa(binary);
+}
+function base64ToBytes(b64){
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+function xorInto(dst, src){ for(let i=0;i<dst.length;i++) dst[i] ^= src[i]; }
+
+// ================= MODE SWITCH =================
+const btnSend = document.getElementById('btnSend');
+const btnRecv = document.getElementById('btnRecv');
+const sendCard = document.getElementById('sendCard');
+const recvCard = document.getElementById('recvCard');
+btnSend.onclick = () => { btnSend.classList.add('active'); btnRecv.classList.remove('active'); sendCard.classList.remove('hidden'); recvCard.classList.add('hidden'); };
+btnRecv.onclick = () => { btnRecv.classList.add('active'); btnSend.classList.remove('active'); recvCard.classList.remove('hidden'); sendCard.classList.add('hidden'); };
+
+// ================= SENDER =================
+const BLOCK_SIZE = 330; // octets par bloc source / par symbole encodé
+const NUM_LANES = 4;
+const META_EVERY = 6; // toutes les N ticks, la lane 0 renvoie les métadonnées
+
+const fileInput = document.getElementById('fileInput');
+const startSend = document.getElementById('startSend');
+const stopSend = document.getElementById('stopSend');
+const qrStage = document.getElementById('qrStage');
+const kTotalEl = document.getElementById('kTotal');
+const symSentEl = document.getElementById('symSent');
+const sendLog = document.getElementById('sendLog');
+const speedRange = document.getElementById('speedRange');
+const speedLabel = document.getElementById('speedLabel');
+speedRange.oninput = () => { speedLabel.textContent = speedRange.value + ' ms/tick'; if(sendTimer) restartTimer(); };
+
+let sendTimer = null;
+let qrObjs = [];
+let srcBlocks = [], K = 0, cdf = null, fileMetaOut = null;
+let symSent = 0, tickCount = 0;
+
+startSend.onclick = () => {
+  const f = fileInput.files[0];
+  if(!f){ sendLog.textContent = 'Choisis un fichier d\'abord.'; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const bytes = new Uint8Array(reader.result);
+    K = Math.ceil(bytes.length / BLOCK_SIZE);
+    if(K < 1) K = 1;
+    srcBlocks = [];
+    for(let i=0;i<K;i++){
+      const block = new Uint8Array(BLOCK_SIZE);
+      const slice = bytes.subarray(i*BLOCK_SIZE, Math.min((i+1)*BLOCK_SIZE, bytes.length));
+      block.set(slice);
+      srcBlocks.push(block);
+    }
+    cdf = buildSolitonCDF(K);
+    fileMetaOut = { name: f.name, mime: f.type || 'application/octet-stream', size: bytes.length, K, blockSize: BLOCK_SIZE };
+    kTotalEl.textContent = K;
+    symSent = 0; tickCount = 0; symSentEl.textContent = '0';
+    qrStage.classList.remove('hidden');
+    startSend.style.display='none'; stopSend.style.display='inline-block'; fileInput.disabled = true;
+    sendLog.textContent = `Fichier prêt : ${f.name} (${(bytes.length/1024).toFixed(1)} Ko, ${K} blocs source).`;
+    if(qrObjs.length === 0){
+      for(let lane=0; lane<NUM_LANES; lane++){
+        qrObjs.push(new QRCode(document.getElementById('qrCell'+lane), { width:160, height:160, correctLevel: QRCode.CorrectLevel.L }));
+      }
+    }
+    restartTimer();
+  };
+  reader.readAsArrayBuffer(f);
+};
+
+function restartTimer(){
+  if(sendTimer) clearInterval(sendTimer);
+  sendTimer = setInterval(tick, parseInt(speedRange.value));
+}
+
+function tick(){
+  tickCount++;
+  for(let lane=0; lane<NUM_LANES; lane++){
+    let payload;
+    if(lane === 0 && tickCount % META_EVERY === 0){
+      payload = JSON.stringify(['m', fileMetaOut.name, fileMetaOut.mime, fileMetaOut.size, fileMetaOut.K, fileMetaOut.blockSize]);
+    } else {
+      const seed = (Math.random()*0xFFFFFFFF) >>> 0;
+      const rng = mulberry32(seed);
+      const d = pickDegree(rng, cdf, K);
+      const idxs = pickIndices(rng, K, d);
+      const out = new Uint8Array(BLOCK_SIZE);
+      for(const idx of idxs) xorInto(out, srcBlocks[idx]);
+      payload = JSON.stringify(['f', seed, bytesToBase64(out)]);
+      symSent++;
+    }
+    qrObjs[lane].clear();
+    qrObjs[lane].makeCode(payload);
+  }
+  symSentEl.textContent = symSent;
+}
+
+stopSend.onclick = () => {
+  clearInterval(sendTimer); sendTimer = null;
+  qrStage.classList.add('hidden'); startSend.style.display='inline-block';
+  stopSend.style.display='none'; fileInput.disabled = false;
+  sendLog.textContent = 'Diffusion arrêtée.';
+};
+
+// ================= RECEIVER =================
+const startRecv = document.getElementById('startRecv');
+const stopRecv = document.getElementById('stopRecv');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const NUM_LANES_RX = 4;
+const quadCanvas = [], quadCtx = [];
+for(let i=0;i<NUM_LANES_RX;i++){
+  const c = document.createElement('canvas');
+  quadCanvas.push(c); quadCtx.push(c.getContext('2d', { willReadFrequently: true }));
+}
+const progBar = document.getElementById('progBar');
+const gotCount = document.getElementById('gotCount');
+const totalCount = document.getElementById('totalCount');
+const fileNameEl = document.getElementById('fileName');
+const recvLog = document.getElementById('recvLog');
+const downloadZone = document.getElementById('downloadZone');
+const throughputVal = document.getElementById('throughputVal');
+const reliabilityVal = document.getElementById('reliabilityVal');
+const suggestBox = document.getElementById('suggestBox');
+
+let stream = null, scanLoop = null;
+
+// état du décodeur fountain
+let rxMeta = null, rxK = 0, rxCdf = null, rxBlockSize = 0;
+let resolved = new Map();      // idx -> Uint8Array
+let resolvedCount = 0;
+let adj = new Map();           // idx -> Set(eq) pour équations en attente
+let resolveQueue = [];
+let seenSeeds = new Set();     // évite de retraiter deux fois le même symbole
+let done = false;
+
+// compteurs pour le moniteur adaptatif
+let scanAttempts = 0, scanSuccesses = 0;
+let lastMeterUpdate = 0, lastResolvedForRate = 0, lastRateTime = 0;
+let frameCount = 0, lastDiagUpdate = 0;
+
+function resetReceiverState(){
+  rxMeta = null; rxK = 0; rxCdf = null; rxBlockSize = 0;
+  resolved = new Map(); resolvedCount = 0; adj = new Map(); resolveQueue = [];
+  seenSeeds = new Set(); done = false;
+  scanAttempts = 0; scanSuccesses = 0; frameCount = 0;
+  lastResolvedForRate = 0; lastRateTime = performance.now();
+  gotCount.textContent='0'; totalCount.textContent='?'; progBar.style.width='0%';
+  fileNameEl.textContent='en attente…'; downloadZone.innerHTML='';
+  throughputVal.textContent='--'; reliabilityVal.textContent='--';
+  suggestBox.classList.remove('show','ok'); suggestBox.textContent='';
+}
+
+startRecv.onclick = async () => {
+  if(typeof jsQR === 'undefined'){
+    recvLog.textContent = 'Erreur : la librairie de scan (jsQR) ne s\'est pas chargée — vérifie la connexion internet.';
+    return;
+  }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  } catch(e){
+    recvLog.textContent = 'Caméra inaccessible : ' + e.message;
+    return;
+  }
+  video.srcObject = stream;
+  video.classList.remove('hidden');
+  await video.play();
+  startRecv.style.display='none'; stopRecv.style.display='inline-block';
+  resetReceiverState();
+  recvLog.textContent = 'Scan en cours — vise l\'écran de l\'émetteur.';
+  scanLoop = requestAnimationFrame(scanFrame);
+};
+
+function scanFrame(){
+  try{
+    if(video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0){
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const hw = vw/2, hh = vh/2;
+      const quads = [ [0,0], [hw,0], [0,hh], [hw,hh] ];
+      for(let i=0;i<NUM_LANES_RX;i++){
+        const [sx, sy] = quads[i];
+        quadCanvas[i].width = hw; quadCanvas[i].height = hh;
+        quadCtx[i].drawImage(video, sx, sy, hw, hh, 0, 0, hw, hh);
+        const img = quadCtx[i].getImageData(0,0,hw,hh);
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+        scanAttempts++;
+        if(code){ scanSuccesses++; handlePayload(code.data); }
+      }
+      frameCount++;
+      const now = performance.now();
+      if(now - lastDiagUpdate > 500){
+        lastDiagUpdate = now;
+        if(resolvedCount === 0 && !rxMeta){
+          recvLog.textContent = `Scan actif (${frameCount} images, 4 quadrants ${Math.round(hw)}×${Math.round(hh)}) — aucun QR détecté pour l'instant.`;
+        }
+      }
+      updateMeter(now);
+    }
+  } catch(err){
+    recvLog.textContent = 'Erreur de scan : ' + err.message + ' — relance en cours…';
+  }
+  if(!done) scanLoop = requestAnimationFrame(scanFrame);
+}
+
+function updateMeter(now){
+  if(now - lastMeterUpdate < 600) return;
+  const dt = (now - lastRateTime) / 1000;
+  if(dt > 0){
+    const deltaBlocks = resolvedCount - lastResolvedForRate;
+    const kbps = (deltaBlocks * rxBlockSize) / 1024 / dt;
+    throughputVal.textContent = kbps > 0 ? kbps.toFixed(1) + ' Ko/s' : '-- Ko/s';
+    lastResolvedForRate = resolvedCount; lastRateTime = now;
+  }
+  const rel = scanAttempts > 0 ? (scanSuccesses/scanAttempts*100) : 0;
+  reliabilityVal.textContent = scanAttempts > 20 ? rel.toFixed(0) + '%' : '--';
+
+  if(scanAttempts > 40){
+    if(rel < 15){
+      suggestBox.className = 'suggest show';
+      suggestBox.textContent = '⚠ Peu de QR détectés — rapproche-toi ou stabilise le téléphone, et éventuellement ralentis l\'émetteur (curseur vitesse).';
+    } else if(rel > 55 && resolvedCount < rxK){
+      suggestBox.className = 'suggest show ok';
+      suggestBox.textContent = '✓ Bonne lecture — tu peux accélérer l\'émetteur pour plus de débit.';
+    } else {
+      suggestBox.classList.remove('show');
+    }
+  }
+  scanAttempts = 0; scanSuccesses = 0;
+  lastMeterUpdate = now;
+}
+
+function handlePayload(raw){
+  let arr;
+  try{ arr = JSON.parse(raw); } catch(e){ return; }
+  if(!Array.isArray(arr) || done) return;
+
+  if(arr[0] === 'm'){
+    if(!rxMeta){
+      rxMeta = { name: arr[1], mime: arr[2], size: arr[3], K: arr[4], blockSize: arr[5] };
+      rxK = rxMeta.K; rxBlockSize = rxMeta.blockSize;
+      rxCdf = buildSolitonCDF(rxK);
+      totalCount.textContent = rxK;
+      fileNameEl.textContent = rxMeta.name;
+      recvLog.textContent = `Métadonnées captées : ${rxMeta.name} (${(rxMeta.size/1024).toFixed(1)} Ko, ${rxK} blocs).`;
+    }
+    return;
+  }
+
+  if(arr[0] === 'f'){
+    if(!rxMeta) return; // il faut les métadonnées pour interpréter les symboles
+    const seed = arr[1];
+    if(seenSeeds.has(seed)) return;
+    seenSeeds.add(seed);
+    const data = base64ToBytes(arr[2]);
+    const rng = mulberry32(seed);
+    const d = pickDegree(rng, rxCdf, rxK);
+    const idxs = pickIndices(rng, rxK, d);
+    processEquation(new Set(idxs), data);
+  }
+}
+
+function processEquation(indexSet, data){
+  for(const idx of Array.from(indexSet)){
+    if(resolved.has(idx)){
+      xorInto(data, resolved.get(idx));
+      indexSet.delete(idx);
+    }
+  }
+  if(indexSet.size === 0) return;
+  if(indexSet.size === 1){
+    resolveQueue.push({ idx: [...indexSet][0], data });
+    drainQueue();
+    return;
+  }
+  const eq = { indices: indexSet, data };
+  for(const idx of indexSet){
+    if(!adj.has(idx)) adj.set(idx, new Set());
+    adj.get(idx).add(eq);
+  }
+}
+
+function drainQueue(){
+  while(resolveQueue.length){
+    const { idx, data } = resolveQueue.shift();
+    if(resolved.has(idx)) continue;
+    resolved.set(idx, data);
+    resolvedCount++;
+    gotCount.textContent = resolvedCount;
+    if(rxK) progBar.style.width = Math.min(100, (resolvedCount/rxK*100)) + '%';
+
+    const affected = adj.get(idx);
+    if(affected){
+      for(const eq of Array.from(affected)){
+        if(!eq.indices.has(idx)) continue;
+        xorInto(eq.data, data);
+        eq.indices.delete(idx);
+        if(eq.indices.size === 1){
+          const remaining = [...eq.indices][0];
+          const advSet = adj.get(remaining);
+          if(advSet) advSet.delete(eq);
+          resolveQueue.push({ idx: remaining, data: eq.data });
+        }
+      }
+      adj.delete(idx);
+    }
+  }
+  if(rxK && resolvedCount >= rxK && !done){
+    finalizeFile();
+  }
+}
+
+function finalizeFile(){
+  done = true;
+  cancelAnimationFrame(scanLoop);
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  video.classList.add('hidden');
+  startRecv.style.display='inline-block'; stopRecv.style.display='none';
+  try{
+    const full = new Uint8Array(rxK * rxBlockSize);
+    for(let i=0;i<rxK;i++) full.set(resolved.get(i), i*rxBlockSize);
+    const trimmed = full.subarray(0, rxMeta.size);
+    const blob = new Blob([trimmed], { type: rxMeta.mime });
+    const url = URL.createObjectURL(blob);
+    downloadZone.innerHTML = `<div class="log">Transfert complet ✓</div><a class="dl" href="${url}" download="${rxMeta.name}">Télécharger ${rxMeta.name}</a>`;
+    recvLog.textContent = 'Fichier reconstruit avec succès (décodage fontaine).';
+    suggestBox.classList.remove('show');
+  } catch(e){
+    recvLog.textContent = 'Erreur de reconstruction : ' + e.message;
+  }
+}
+
+stopRecv.onclick = () => {
+  done = true;
+  cancelAnimationFrame(scanLoop);
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  video.classList.add('hidden');
+  startRecv.style.display='inline-block'; stopRecv.style.display='none';
+  recvLog.textContent = 'Scan arrêté.';
+};
+
+// ================= PWA =================
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
